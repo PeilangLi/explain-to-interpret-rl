@@ -26,20 +26,9 @@ def get_state_dist(model, vec_env, sample_size):
         
         action, _state = model.predict(obs, deterministic=True)
         
-        # action_dis = model.policy.get_distribution(th.tensor(obs, device=device)).distribution.probs
-        # print(action_dis, action)
-        
-        obs = np.round(obs, 2) # round up to 2 digits for state generalization
+        obs = np.round(obs, 2)
         
         state_dist[tuple(map(tuple, obs))] += 1
-        
-        # state_dist[int(obs)] += 1
-
-        # if isinstance(obs, np.ndarray) and obs.ndim > 1:
-        #     state_dist[tuple(map(tuple, obs))] += 1
-        # else:
-        #     state_dist[obs] += 1  # Treat obs as a single state key
-
 
         obs, rewards, dones, info = vec_env.step(action)
         reset_num = reset_num + 1
@@ -80,7 +69,6 @@ def get_pi_C(env, model,  C, state_dist, states_to_explain):
         policy = model.policy.get_distribution(states_to_explain).distribution
     
     if len(C) == env.observation_space.shape[0]: 
-        # Return the same policy
         pi_C = {}
         
         if isinstance(policy, Normal): # continous action
@@ -101,16 +89,9 @@ def get_pi_C(env, model,  C, state_dist, states_to_explain):
         state_dim = env.observation_space.shape[0]
         mask_states = mask_state(states_to_explain, state_dim, C)
         mask_all_states = mask_state(all_states, state_dim, C)
-        
-        # ----------- Debug -----------
-        # print('mask_states: ', mask_states)
-        # print('mask_all_states: ', mask_all_states)
 
-        # Limiting state occupancy distribution: p^{\pi}(s)
-        state_dist_full = th.tensor(list(state_dist.values()), device=device) + 1e-16 # Jitter for divide 0
+        state_dist_full = th.tensor(list(state_dist.values()), device=device) + 1e-16
 
-        # For making new policy
-        # pi_C = defaultdict(lambda: np.full(env.action_space.n, 1/env.action_space.n))
         pi_C = {}
         temp_pi_C = {}
 
@@ -122,22 +103,13 @@ def get_pi_C(env, model,  C, state_dist, states_to_explain):
             # tensor to tuple for dictionary
             m_state = tuple(m_state.tolist())
 
-            # pi_C = \sum_{s \in S}{\pi(a|s) * p(s|s_C)}
-            if isinstance(policy, Normal): # continous action
+            if isinstance(policy, Normal):
                 all_policy = model.policy.get_distribution(all_states).distribution
                 temp_pi_C[tuple(m_state)] = get_expected_normal_distribution(all_policy, state_dist_cond, ind)
-            else: # discrete action
-                ## change for frozenlake env
-                # a_dists = [] # clean up for next iteration
-                # for i in range(len(all_states)):
-                #     a_dist = model.policy.get_distribution(all_states[i]).distribution.probs
-                #     a_dists.append(a_dist)
-                # temp_pi_C[tuple(m_state)] = ((th.stack(a_dists).squeeze(1))[ind.squeeze()] * state_dist_cond[:, None]).sum(axis=0)
+            else:
 
-                temp_pi_C[tuple(m_state)] = (model.policy.get_distribution(all_states).distribution.probs.detach()[ind.squeeze()] * state_dist_cond[:, None]).sum(axis=0) # this is faster
-                # remove the gradient
+                temp_pi_C[tuple(m_state)] = (model.policy.get_distribution(all_states).distribution.probs.detach()[ind.squeeze()] * state_dist_cond[:, None]).sum(axis=0)
 
-        # Set partially observed policies for fully observed states using^
         for state, m_state in zip(states_to_explain, mask_states):
 
             # Convert tensor to tuple to create dictionary
@@ -158,14 +130,11 @@ def DQN_get_pi_C(env, model,  C, state_dist, states_to_explain):
     policy = defaultdict(lambda: np.full(env.action_space.n, 1/env.action_space.n))
 
     for state in states_to_explain:
-        # q_values = np.array(model.q_net(state.unsqueeze(0)).detach()[0])
         q_values = np.array(model.q_net(state.unsqueeze(0)).detach().cpu()[0])
         
         # Q values with slightly different values but should be same policy. 
         q_values = q_values.round(2)
         
-        # change state to array for hash look up in dict
-        # state = tuple(np.array(state))
         state = tuple(np.array(state.cpu()))
 
         policy[state] = th.tensor((q_values == q_values.max()).astype(float))
@@ -176,7 +145,6 @@ def DQN_get_pi_C(env, model,  C, state_dist, states_to_explain):
         pi_C = {}
         
         for i in range(len(policy)):
-            # pi_C[tuple(states_to_explain.tolist()[i])] = policy[tuple(np.array(states_to_explain[i]))]
             pi_C[tuple(states_to_explain.tolist()[i])] = policy[tuple(np.array(states_to_explain[i].cpu()))]
         return pi_C
             
@@ -188,23 +156,15 @@ def DQN_get_pi_C(env, model,  C, state_dist, states_to_explain):
         state_dim = env.observation_space.shape[0]
         mask_states = mask_state(states_to_explain, state_dim, C)
         mask_all_states = mask_state(all_states, state_dim, C)
-        
-        # ----------- Debug -----------
-        # print('mask_states: ', mask_states)
-        # print('mask_all_states: ', mask_all_states)
 
-        # Limiting state occupancy distribution: p^{\pi}(s)
-        state_dist_full = th.tensor(list(state_dist.values()), device=device) + 1e-16 # Jitter for divide 0
+        state_dist_full = th.tensor(list(state_dist.values()), device=device) + 1e-16
 
-        # For making new policy
-        # pi_C = defaultdict(lambda: np.full(env.action_space.n, 1/env.action_space.n))
         pi_C = {}
         temp_pi_C = {}
         
         # Add for policy lookup in pi_C = \sum_{s \in S}{\pi(a|s) * p(s|s_C)}
         temp_policy = []
         for state in all_states:
-            # q_values = np.array(model.q_net(state.unsqueeze(0)).detach())
             q_values = np.array(model.q_net(state.unsqueeze(0)).detach().cpu())
             # Q values with slightly different values but should be same policy. 
             q_values = q_values.round(2)
@@ -212,15 +172,11 @@ def DQN_get_pi_C(env, model,  C, state_dist, states_to_explain):
     
         for m_state in th.unique(mask_states, dim=0):
 
-            # ind = (mask_all_states == m_state).all(axis=2)
             ind = (mask_all_states == m_state).all(axis=2).cpu()
             state_dist_cond = state_dist_full[ind.squeeze()] /state_dist_full[ind.squeeze()].sum() # Conditional limiting state occupancy distribution.
             
             # tensor to tuple for dictionary
             m_state = tuple(m_state.tolist())
-            # pi_C = \sum_{s \in S}{\pi(a|s) * p(s|s_C)}
-
-            # temp_pi_C[tuple(m_state)] = (th.tensor(temp_policy)[ind]* state_dist_cond[:, None]).sum(axis=0)# this is faster
             
             temp_pi_C[tuple(m_state)] = (th.tensor(temp_policy)[ind]* state_dist_cond[:, None].cpu()).sum(axis=0)# this is faster
                 # remove the gradient
@@ -288,9 +244,6 @@ def get_expected_normal_distribution(policy, state_dist_cond, ind):
 
     return expected_distribution
 
-# def sum_guassian_dist():
-#     1+1
-    
 def tqdm_label(iterator, label):
     """
     Takes an iterator and produces a labelled tqdm progress bar.
